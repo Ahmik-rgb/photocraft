@@ -191,7 +191,7 @@ what an agent can't finish alone.
   layer nudge (#2474, #2556); polygonal lasso Shift angles (#2352, #2396); double-click Zoom tool
   to 100% (#2508, #2527); tool-key memory in a group (#2608, #2625); hold-a-key spring-loaded
   tools (#2672); H/V skew fields in the Free Transform options bar; Free Transform of several
-  selected layers, ⌘T and the Move tool's shared frame (#6501, #3384, #6096; Warp stays one
+  selected layers, ⌘T and the Move tool's shared frame (#6501, #7052, #3384, #6096; Warp stays one
   layer).
 - **Detail:** [`ui-parity.md`](ui-parity.md).
 - **Estimate:** 60–110 h.

@@ -1,4 +1,4 @@
-//! Free Transform of several selected layers by one box (#6501).
+//! Free Transform of several selected layers by one box (#6501, #7052).
 
 use super::*;
 
@@ -206,4 +206,53 @@ fn bad_layers_params_are_errors_not_panics() {
         assert!(s.execute("edit.transform", p.clone()).is_err(), "{p}");
     }
     assert!(s.active().unwrap().doc == before);
+}
+
+/// Two smart objects selected, as in #7052: Free Transform must move both, not only the active one.
+fn two_smart_objects() -> (Session, LayerId, LayerId) {
+    let mut s = Session::new();
+    s.execute("file.new", json!({"width": 200, "height": 200, "background": "white"})).unwrap();
+    let a = LayerId(s.execute("layer.new.layer", json!({"name": "A"})).unwrap()["layer"].as_u64().unwrap());
+    s.edit("paint-a", |doc, _| {
+        doc.layer_mut(a).unwrap().surface_mut().unwrap().fill_rect(Rect::new(10, 10, 40, 30), &[1.0, 0.0, 0.0, 1.0]);
+        Ok(())
+    })
+    .unwrap();
+    s.execute("layer.smartObjects.convertToSmartObject", json!({"layer": a.0})).unwrap();
+    let a = s.active().unwrap().active_layer.unwrap();
+    let b = LayerId(s.execute("layer.new.layer", json!({"name": "B"})).unwrap()["layer"].as_u64().unwrap());
+    s.edit("paint-b", |doc, _| {
+        doc.layer_mut(b).unwrap().surface_mut().unwrap().fill_rect(Rect::new(80, 80, 120, 110), &[0.0, 1.0, 0.0, 1.0]);
+        Ok(())
+    })
+    .unwrap();
+    s.execute("layer.smartObjects.convertToSmartObject", json!({"layer": b.0})).unwrap();
+    let b = s.active().unwrap().active_layer.unwrap();
+    s.execute("layer.select", json!({"layer": a.0})).unwrap();
+    s.execute("layer.select", json!({"layer": b.0, "mode": "add"})).unwrap();
+    (s, a, b)
+}
+
+fn smart_translate(s: &Session, id: LayerId) -> [f64; 2] {
+    let st = s.active().unwrap();
+    let LayerContent::Smart(sm) = &st.doc.layer(id).unwrap().content else { panic!("not a smart object") };
+    [sm.transform.m[4], sm.transform.m[5]]
+}
+
+#[test]
+fn free_transform_moves_every_selected_smart_object_in_one_step() {
+    let (mut s, a, b) = two_smart_objects();
+    let (a0, b0, ba, bb) = (smart_translate(&s, a), smart_translate(&s, b), bounds(&s, a), bounds(&s, b));
+    let steps = s.active().unwrap().history.past_len();
+    // Before #7052 only the active smart object moved; the other stayed put.
+    let r = s.execute("edit.transform", json!({"matrix": [1, 0, 0, 1, 25, 15]})).unwrap();
+    assert_eq!(r["layers"], json!([a.0, b.0]));
+    assert_eq!(smart_translate(&s, a), [a0[0] + 25.0, a0[1] + 15.0]);
+    assert_eq!(smart_translate(&s, b), [b0[0] + 25.0, b0[1] + 15.0]);
+    assert_eq!(bounds(&s, a), ba.translate(25, 15));
+    assert_eq!(bounds(&s, b), bb.translate(25, 15));
+    assert_eq!(s.active().unwrap().history.past_len(), steps + 1, "one history step");
+    s.undo();
+    assert_eq!((smart_translate(&s, a), smart_translate(&s, b)), (a0, b0));
+    assert_eq!((bounds(&s, a), bounds(&s, b)), (ba, bb));
 }

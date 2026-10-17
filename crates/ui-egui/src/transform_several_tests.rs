@@ -1,5 +1,5 @@
-//! Free Transform with several layers selected (#6501): ⌘T frames them all and the box moves
-//! every one of them, type and pixels alike, in one history step.
+//! Free Transform with several layers selected (#6501, #7052): ⌘T frames them all and the box
+//! moves every one of them — pixels, type and smart objects alike — in one history step.
 
 use photocraft_doc::{LayerContent, LayerId};
 use photocraft_geom::Rect;
@@ -301,4 +301,42 @@ fn a_style_of_the_group_around_the_moving_layers_moves_with_them() {
     let (stroke, quad) = crate::transform_tool::moving_texel(&app, [6, 20]);
     assert!(stroke.is_some_and(|c| c.a() > 200 && c.g() > 200), "the group's stroke left of the block: {stroke:?}");
     assert!(quad[0][0] <= 4.0, "{quad:?}");
+}
+
+/// Two smart objects selected (#7052): ⌘T frames both and commits both in one step.
+#[test]
+fn free_transform_moves_every_selected_smart_object() {
+    let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+    app.run("file.new", json!({"width": 200, "height": 200, "background": "white"})).unwrap();
+    app.sync_views();
+    let a = LayerId(app.run("layer.new.layer", json!({"name": "A"})).unwrap()["layer"].as_u64().unwrap());
+    app.run("select.rect", json!({"x": 10, "y": 10, "width": 30, "height": 20})).unwrap();
+    app.run("edit.fill", json!({"contents": "color", "color": "#ff0000"})).unwrap();
+    app.run("select.deselect", json!({})).unwrap();
+    app.run("layer.smartObjects.convertToSmartObject", json!({"layer": a.0})).unwrap();
+    let a = app.session.active().unwrap().active_layer.unwrap();
+    let b = LayerId(app.run("layer.new.layer", json!({"name": "B"})).unwrap()["layer"].as_u64().unwrap());
+    app.run("select.rect", json!({"x": 80, "y": 80, "width": 40, "height": 30})).unwrap();
+    app.run("edit.fill", json!({"contents": "color", "color": "#00ff00"})).unwrap();
+    app.run("select.deselect", json!({})).unwrap();
+    app.run("layer.smartObjects.convertToSmartObject", json!({"layer": b.0})).unwrap();
+    let b = app.session.active().unwrap().active_layer.unwrap();
+    app.run("layer.select", json!({"layer": a.0})).unwrap();
+    app.run("layer.select", json!({"layer": b.0, "mode": "add"})).unwrap();
+    let (a0, b0) = (bounds(&app, a), bounds(&app, b));
+    free_transform(&mut app);
+    let t = app.ui.transform.as_ref().unwrap();
+    assert_eq!(t.layers, vec![a.0, b.0], "the box lists both smart objects");
+    assert_eq!(t.rect, [a0.union(&b0).x0, a0.union(&b0).y0, a0.union(&b0).x1, a0.union(&b0).y1].map(f64::from));
+    if let Some(t) = app.ui.transform.as_mut() {
+        t.interpolation = "nearest".into();
+        t.quad = t.quad.map(|[x, y]| [x + 12.0, y + 8.0]);
+    }
+    crate::transform_tool::commit(&mut app);
+    assert!(app.ui.transform.is_none());
+    assert_eq!(bounds(&app, a), a0.translate(12, 8));
+    assert_eq!(bounds(&app, b), b0.translate(12, 8));
+    let st = app.session.active().unwrap();
+    assert!(matches!(st.doc.layer(a).unwrap().content, LayerContent::Smart(_)));
+    assert!(matches!(st.doc.layer(b).unwrap().content, LayerContent::Smart(_)));
 }
